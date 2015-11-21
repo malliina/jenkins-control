@@ -1,20 +1,26 @@
 package com.mle.jenkinsctrl.models
 
 import com.mle.jenkinsctrl.json.JsonUtils
-import play.api.libs.json.{JsError, JsSuccess}
+import play.api.libs.json.JsSuccess
 
 /**
   * @author mle
   */
-case class Url private(url: String)
+case class Url private(url: String) {
+  override def toString = url
+}
 
 object Url extends JsonUtils {
-  implicit val json = stringFormat[Url](
-    s => build(s).map(u => JsSuccess(u)).getOrElse(JsError(s"Not a valid URL: $s")),
-    u => u.url)
-  val baseUrlRegex = """(https?://.+)$""".r
+  implicit val json = stringFormat[Url](s => JsSuccess(apply(s)), u => u.url)
+  val supportedProtocols = Seq("http", "https", "ws", "wss")
 
-  def build(url: String): Option[Url] = {
-    baseUrlRegex.findFirstIn(url).map(apply)
+  def fromUrl(host: Url, path: String): Url = {
+    val prefixedPath = if (path startsWith "/") path else s"/$path"
+    Url(s"${host.url}$prefixedPath")
+  }
+
+  def build(url: String): Url = {
+    if (supportedProtocols.exists(proto => url.startsWith(s"$proto://"))) Url(url)
+    else Url(s"http://$url")
   }
 }

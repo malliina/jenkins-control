@@ -13,6 +13,9 @@ object TemplateBuild extends Build {
     version := "0.0.1",
     scalaVersion := "2.11.7",
     fork in Test := true,
-    libraryDependencies += "com.github.malliina" %% "util" % "2.0.0"
+    libraryDependencies ++= Seq(
+      "com.github.malliina" %% "util" % "2.0.0",
+      "org.scalaz" %% "scalaz-core" % "7.1.5"
+    )
   )
 }

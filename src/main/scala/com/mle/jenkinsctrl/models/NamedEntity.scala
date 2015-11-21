@@ -5,4 +5,6 @@ package com.mle.jenkinsctrl.models
   */
 trait NamedEntity {
   def name: String
+
+  override def toString = name
 }

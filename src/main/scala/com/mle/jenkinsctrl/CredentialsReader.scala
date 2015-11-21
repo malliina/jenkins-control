@@ -4,6 +4,7 @@ import java.nio.file.Path
 
 import com.mle.file.{FileUtilities, StorageFile}
 import com.mle.jenkinsctrl.CredentialsReader._
+import com.mle.jenkinsctrl.models.Url
 import com.mle.util.BaseConfigReader
 
 /**
@@ -19,7 +20,7 @@ class CredentialsReader extends BaseConfigReader[JenkinsCredentials] {
       host <- map get Host
       user <- map get User
       pass <- map get Pass
-    } yield JenkinsCredentials(host, user, pass)
+    } yield JenkinsCredentials(Url.build(host), user, pass)
   }
 }
 

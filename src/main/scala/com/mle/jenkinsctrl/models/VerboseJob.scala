@@ -12,7 +12,7 @@ case class VerboseJob(name: JobName,
                       builds: Seq[Build],
                       nextBuildNumber: Int,
                       buildable: Boolean,
-                      inqueue: Boolean,
+                      inQueue: Boolean,
                       concurrentBuild: Boolean) extends Job
 
 object VerboseJob {
