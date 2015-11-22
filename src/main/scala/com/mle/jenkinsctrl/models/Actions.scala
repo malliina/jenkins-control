@@ -10,12 +10,13 @@ case class Actions(causes: Seq[Cause],
                    buildAction: BuildAction)
 
 object Actions {
+  val CausesKey = "causes"
   val writer = Json.writes[Actions]
   val reader = Reads[Actions](json => json.validate[Seq[JsValue]].flatMap(fromActions))
   implicit val json: Format[Actions] = Format(reader, writer)
 
   def fromActions(actions: Seq[JsValue]): JsResult[Actions] = {
-    fromActions(actions, JsError("No causes"), JsError("No build actions"))
+    fromActions(actions.filter(_ != Json.obj()), JsError("No causes"), JsError("No build actions"))
   }
 
   def fromActions(actions: Seq[JsValue],
@@ -27,7 +28,7 @@ object Actions {
       case (ca, ba) =>
         actions.toList match {
           case head :: tail =>
-            fromActions(tail, ca.orElse(head.validate[Seq[Cause]]), ba.orElse(head.validate[BuildAction]))
+            fromActions(tail, ca.orElse((head \ CausesKey).validate[Seq[Cause]]), ba.orElse(head.validate[BuildAction]))
           case _ =>
             mergeErrors(Seq(ca, ba)) getOrElse JsError("Unknown actions")
         }
@@ -42,8 +43,8 @@ object Actions {
     if (jsErrors.isEmpty) {
       None
     } else {
-      val hm = jsErrors.foldLeft[Seq[(JsPath, Seq[ValidationError])]](Nil)((acc, errs) => JsError.merge(acc, errs))
-      Option(JsError(hm))
+      val errors = jsErrors.foldLeft[Seq[(JsPath, Seq[ValidationError])]](Nil)((acc, errs) => JsError.merge(acc, errs))
+      Option(JsError(errors))
     }
   }
 }

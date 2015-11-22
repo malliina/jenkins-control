@@ -10,8 +10,9 @@ import play.api.libs.json._
 case class Branch(sha1: SHA1, name: String)
 
 object Branch {
+  val JsonKey = "branch"
   implicit val json = (
-    (JsPath \ "SHA1").format[SHA1] and
+    (JsPath \ SHA1.JsonKey).format[SHA1] and
       (JsPath \ "name").format[String]
     ) (apply, unlift(unapply))
 }

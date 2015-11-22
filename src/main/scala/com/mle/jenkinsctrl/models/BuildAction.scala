@@ -5,8 +5,8 @@ import play.api.libs.json.Json
 /**
   * @author mle
   */
-case class BuildAction(buildByBranchName: Map[String, BuildByBranch],
-                       lastBuiltRevision: BuildByBranch,
+case class BuildAction(buildsByBranchName: Map[String, BuildByBranch],
+                       lastBuiltRevision: Revision,
                        remoteUrls: Seq[Url],
                        scmName: String)
 

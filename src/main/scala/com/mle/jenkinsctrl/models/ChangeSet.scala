@@ -1,11 +1,11 @@
 package com.mle.jenkinsctrl.models
 
-import play.api.libs.json.{JsValue, Json}
+import play.api.libs.json.Json
 
 /**
   * @author mle
   */
-case class ChangeSet(items: Seq[JsValue], kind: String)
+case class ChangeSet(items: Seq[ChangeSetItem], kind: String)
 
 object ChangeSet {
   implicit val json = Json.format[ChangeSet]
