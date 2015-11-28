@@ -1,10 +1,11 @@
 package com.mle.jenkinsctrl.http
 
+import com.mle.concurrent.Completable
 import com.mle.concurrent.ExecutionContexts.cached
 import com.mle.http.AsyncHttp
 import com.mle.http.AsyncHttp.RichRequestBuilder
 import com.mle.jenkinsctrl.JenkinsCredentials
-import com.mle.jenkinsctrl.http.JenkinsClient.{Accept, Location}
+import com.mle.jenkinsctrl.http.JenkinsClient._
 import com.mle.jenkinsctrl.json.JsonException
 import com.mle.jenkinsctrl.models._
 import com.mle.util.Log
@@ -12,8 +13,27 @@ import play.api.libs.json.Reads
 import rx.lang.scala.Observable
 
 import scala.concurrent.Future
-import scala.concurrent.duration.{Duration, DurationInt}
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.util.{Failure, Try}
+
+object JenkinsClient {
+  val DefaultPollInterval = 1.second
+  val Accept = "Accept"
+  val Location = "Location"
+  val ContentType = "Content-Type"
+  val Xml = "application/xml"
+
+  // Jenkins keywords
+  val Api = "api"
+  val BuildKey = "build"
+  val CreateItem = "createItem"
+  val DoDelete = "doDelete"
+  val Json = "json"
+  val Job = "job"
+  val Pretty = "pretty"
+  val TokenKey = "token"
+  val Name = "name"
+}
 
 /**
   * @author mle
@@ -22,67 +42,67 @@ class JenkinsClient(creds: JenkinsCredentials) extends AutoCloseable with Log {
   val client = new AsyncHttp
   val host: Url = creds.host
 
-  val overviewUrl = apiUrl(host)
+  val overviewUrl = jsonUrl(host)
+  val createJobUrl = host / CreateItem
 
-  def buildJobUrl(name: JobName) = jobUrl(name) / s"build?token=${creds.token}"
+  def deleteJobUrl(name: JobName) = jobUrl(name) / DoDelete
 
-  def apiJobUrl(name: JobName) = apiUrl(jobUrl(name))
+  def buildJobUrl(name: JobName) = jobUrl(name) / s"$BuildKey?$TokenKey=${creds.token}"
 
-  def jobUrl(name: JobName): Url = host / "job" / name.name
+  def apiJobUrl(name: JobName) = jsonUrl(jobUrl(name))
 
-  def buildDetailsUrl(name: JobName, number: BuildNumber) = host / "job" / name.name / s"${number.id}"
+  def jobUrl(name: JobName): Url = host / Job / name.name
 
-  def apiUrl(base: Url): Url = base / "api" / "json?pretty=true"
+  def buildDetailsUrl(name: JobName, number: BuildNumber) = host / Job / name.name / s"${number.id}"
 
-  def overview(): Future[Overview] = {
-    runGet[Overview](overviewUrl)
+  def jsonUrl(base: Url): Url = base / Api / s"$Json?$Pretty=true"
+
+  def overview(): Future[Overview] = runGet[Overview](overviewUrl)
+
+  def job(name: JobName): Future[VerboseJob] = runGet[VerboseJob](apiJobUrl(name))
+
+  def createJob(name: JobName, xml: String): Future[RichResponse] = {
+    makeRequest(_.client
+      .preparePost(createJobUrl.url)
+      .setBody(xml)
+      .addQueryParam(Name, name.name)
+      .setHeader(ContentType, Xml))
   }
 
-  def job(name: JobName): Future[VerboseJob] = {
-    runGet[VerboseJob](apiJobUrl(name))
-  }
+  def deleteJob(name: JobName) = makeRequest(_.client.preparePost(deleteJobUrl(name).url))
 
-  def buildDetails(job: JobName, number: BuildNumber): Future[BuildDetails] = {
-    runGet[BuildDetails](apiUrl(buildDetailsUrl(job, number)))
-  }
-
-  def buildWithProgress(job: JobName, pollInterval: Duration = 1.second): Observable[BuildProgress] = {
-    val observable = enqueueUntilBuilding(job, pollInterval).concatMap { queueItem =>
+  def buildWithProgress(job: JobName, pollInterval: FiniteDuration = DefaultPollInterval): Observable[BuildProgress] = {
+    enqueueUntilBuilding(job, pollInterval).concatMap { queueItem =>
       queueItem.executable
         .map(build => follow(job, build.number, pollInterval).map(BuildUpdate))
         .getOrElse(Observable.just(QueueUpdate(queueItem)))
     }
-    asHot(observable)
   }
 
-  def follow(job: JobName, build: BuildNumber, pollInterval: Duration = 1.second): Observable[BuildDetails] = {
-    val observable = Observable.interval(pollInterval)
-      .concatMap(i => Observable.from(buildDetails(job, build)))
-      .takeUntil(_.isComplete)
-    asHot(observable)
+  def follow(job: JobName, build: BuildNumber, pollInterval: FiniteDuration = DefaultPollInterval): Observable[BuildDetails] = {
+    pollUntilComplete(pollInterval)(buildDetails(job, build))
   }
 
-  def enqueueUntilBuilding(job: JobName, pollInterval: Duration = 1.second): Observable[QueueItem] = {
-    val observable = Observable.from(build(job)).concatMap { url =>
-      val queueUrl = apiUrl(url)
+  def enqueueUntilBuilding(job: JobName, pollInterval: FiniteDuration = DefaultPollInterval): Observable[QueueItem] = {
+    Observable.from(build(job)).concatMap { url =>
+      val queueUrl = jsonUrl(url)
       def queueInfo = runGet[QueueItem](queueUrl)
-      Observable.interval(pollInterval)
-        .concatMap(_ => Observable.from(queueInfo))
-        .takeUntil(queueItem => !queueItem.isInProgress)
+      pollUntilComplete(pollInterval)(queueInfo)
     }
-    asHot(observable)
   }
 
-  // Does this even work?
-  def asHot[T](o: Observable[T]): Observable[T] = {
-    val hot = o.publish
-    hot.connect
-    hot
+  def pollUntilComplete[T <: Completable](pollInterval: FiniteDuration)(f: => Future[T]): Observable[T] = {
+    Observable.interval(pollInterval)
+      .concatMap(_ => Observable.from(f))
+      .takeUntil(_.isCompleted)
   }
 
-  def enqueue(job: JobName): Future[QueueItem] = {
-    build(job).flatMap(url => runGet[QueueItem](apiUrl(url)))
+  def buildDetails(job: JobName, number: BuildNumber): Future[BuildDetails] = {
+    runGet[BuildDetails](jsonUrl(buildDetailsUrl(job, number)))
   }
+
+  def enqueue(job: JobName): Future[QueueItem] =
+    build(job).flatMap(url => runGet[QueueItem](jsonUrl(url)))
 
   /** @param job the job name
     * @return the URL to the queued `job`
@@ -118,10 +138,11 @@ class JenkinsClient(creds: JenkinsCredentials) extends AutoCloseable with Log {
   }
 
   def makePost(url: Url): Future[RichResponse] = {
+    log info s"POST $url"
     makeRequest(_.client.preparePost(url.url))
   }
 
-  def makeRequest(f: AsyncHttp => AsyncHttp.RequestBuilder) = {
+  def makeRequest(f: AsyncHttp => AsyncHttp.RequestBuilder): Future[RichResponse] = {
     val builder = f(client)
       .setBasicAuth(creds.user, creds.pass)
       .setHeader(Accept, AsyncHttp.JSON)
@@ -139,11 +160,6 @@ class JenkinsClient(creds: JenkinsCredentials) extends AutoCloseable with Log {
   def close(): Unit = {
     client.close()
   }
-}
-
-object JenkinsClient {
-  val Accept = "Accept"
-  val Location = "Location"
 }
 
 object StatusCodes {

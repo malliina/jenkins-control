@@ -1,5 +1,6 @@
 package com.mle.jenkinsctrl.models
 
+import com.mle.concurrent.Completable
 import org.joda.time.DateTime
 import play.api.libs.json.Json
 
@@ -18,10 +19,12 @@ case class QueueItem(actions: Seq[QueueActions],
                      why: Option[String],
                      cancelled: Option[Boolean],
                      executable: Option[Build],
-                     timestamp: Option[DateTime]) {
+                     timestamp: Option[DateTime]) extends Completable {
   def isInQueue = why.isDefined
 
-  def isInProgress = !(buildExists || cancelled.isDefined)
+  def isInProgress = !isCompleted
+
+  def isCompleted = buildExists || cancelled.isDefined
 
   def buildExists = executable.isDefined
 }

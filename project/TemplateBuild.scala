@@ -15,7 +15,8 @@ object TemplateBuild extends Build {
     fork in Test := true,
     libraryDependencies ++= Seq(
       "com.github.malliina" %% "util" % "2.0.0",
-      "org.scalaz" %% "scalaz-core" % "7.1.5"
+      "org.scalaz" %% "scalaz-core" % "7.1.5",
+      "com.typesafe.akka" %% "akka-actor" % "2.4.0"
     )
   )
 }

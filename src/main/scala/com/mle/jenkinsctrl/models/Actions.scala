@@ -7,7 +7,7 @@ import play.api.libs.json._
   * @author mle
   */
 case class Actions(causes: Seq[Cause],
-                   buildAction: BuildAction)
+                   buildAction: Option[BuildAction])
 
 object Actions {
   val CausesKey = "causes"
@@ -24,13 +24,14 @@ object Actions {
                   buildAction: JsResult[BuildAction]): JsResult[Actions] = {
     (causesAction, buildAction) match {
       case (JsSuccess(ca, _), JsSuccess(ba, _)) =>
-        JsSuccess(Actions(ca, ba))
+        JsSuccess(Actions(ca, Option(ba)))
       case (ca, ba) =>
         actions.toList match {
           case head :: tail =>
             fromActions(tail, ca.orElse((head \ CausesKey).validate[Seq[Cause]]), ba.orElse(head.validate[BuildAction]))
           case _ =>
-            mergeErrors(Seq(ca, ba)) getOrElse JsError("Unknown actions")
+//            mergeErrors(Seq(ca, ba)) getOrElse JsError("Unknown actions")
+            JsSuccess(Actions(ca.getOrElse(Nil), ba.asOpt))
         }
     }
   }

@@ -10,7 +10,7 @@ object FutureUtils {
   implicit val defaultMonad = futureMonad(ExecutionContext.Implicits.global)
   implicit val cachedMonad = futureMonad(ExecutionContexts.cached)
 
-  def futureMonad(ec: ExecutionContext) = new Monad[Future] {
+  def futureMonad(ec: ExecutionContext): Monad[Future] = new Monad[Future] {
     override def point[A](a: => A): Future[A] = {
       Future.successful(a)
     }
