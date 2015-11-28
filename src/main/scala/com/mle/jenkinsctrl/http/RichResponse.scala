@@ -16,6 +16,8 @@ case class RichResponse(response: Response) {
   lazy val body = Try(response.getResponseBody)
   lazy val json = body.flatMap(b => Try(Json.parse(b)))
   lazy val headers: Map[String, Seq[String]] = RichResponse.ningHeadersToMap(response.getHeaders)
+
+  def firstHeaderValue(name: String) = headers.get(name).flatMap(_.headOption)
 }
 
 object RichResponse {

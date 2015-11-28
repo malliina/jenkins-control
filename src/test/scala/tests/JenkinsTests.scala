@@ -3,9 +3,10 @@ package tests
 import com.mle.concurrent.ExecutionContexts.cached
 import com.mle.jenkinsctrl.CredentialsReader
 import com.mle.jenkinsctrl.http.JenkinsClient
-import com.mle.jenkinsctrl.models.{BuildUpdate, JobName, VerboseJob}
+import com.mle.jenkinsctrl.models._
 import com.mle.util.Util
 import org.scalatest.BeforeAndAfter
+import rx.lang.scala.Observable
 
 import scala.concurrent.duration.DurationInt
 import scala.concurrent.{Await, Future}
@@ -79,7 +80,7 @@ class JenkinsTests extends BaseSuite with BeforeAndAfter {
     withClient { client =>
       def followWork() = {
         val observable = client.buildWithProgress(testJob)
-//        observable.subscribe(
+        //        observable.subscribe(
         //          onNext = progress => println(progress),
         //          onError = e => println(e),
         //          onCompleted = () => println("Completed")
@@ -92,10 +93,7 @@ class JenkinsTests extends BaseSuite with BeforeAndAfter {
         deletion <- client.deleteJob(testJob)
       } yield task
       val lastProgress = awaitForLong(work)
-      assert(lastProgress.exists {
-        case BuildUpdate(details) => details.isCompleted
-        case _ => false
-      })
+      assert(lastProgress.exists(_.info.isCompleted))
     }
   }
 
