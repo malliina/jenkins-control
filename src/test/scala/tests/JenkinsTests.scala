@@ -6,10 +6,8 @@ import com.mle.jenkinsctrl.http.JenkinsClient
 import com.mle.jenkinsctrl.models._
 import com.mle.util.Util
 import org.scalatest.BeforeAndAfter
-import rx.lang.scala.Observable
 
-import scala.concurrent.duration.DurationInt
-import scala.concurrent.{Await, Future}
+import scala.concurrent.Future
 
 /**
   * @author mle
@@ -76,20 +74,12 @@ class JenkinsTests extends BaseSuite with BeforeAndAfter {
     }
   }
 
-  test("POST to run job") {
+  test("POST to run job task") {
     withClient { client =>
-      def followWork() = {
-        val observable = client.buildWithProgress(testJob)
-        //        observable.subscribe(
-        //          onNext = progress => println(progress),
-        //          onError = e => println(e),
-        //          onCompleted = () => println("Completed")
-        //        )
-        observable
-      }
+      def followWork() = client.buildWithProgressTask(testJob)
       val work = for {
         creation <- client.createJob(testJob, testJobConfig)
-        task = followWork().toBlocking.lastOption
+        task = followWork().materialized.toBlocking.lastOption
         deletion <- client.deleteJob(testJob)
       } yield task
       val lastProgress = awaitForLong(work)
@@ -115,8 +105,4 @@ class JenkinsTests extends BaseSuite with BeforeAndAfter {
   }
 
   def withClient[T](f: JenkinsClient => T): T = Util.using(new JenkinsClient(creds))(f)
-
-  def await[T](f: Future[T]): T = Await.result(f, 5.seconds)
-
-  def awaitForLong[T](f: Future[T]): T = Await.result(f, 2.minutes)
 }

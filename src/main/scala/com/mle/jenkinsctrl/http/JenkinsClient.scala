@@ -1,7 +1,7 @@
 package com.mle.jenkinsctrl.http
 
-import com.mle.concurrent.{Observables, Completable}
 import com.mle.concurrent.ExecutionContexts.cached
+import com.mle.concurrent.Observables
 import com.mle.http.AsyncHttp
 import com.mle.http.AsyncHttp.RichRequestBuilder
 import com.mle.jenkinsctrl.JenkinsCredentials
@@ -11,6 +11,7 @@ import com.mle.jenkinsctrl.models._
 import com.mle.util.Log
 import play.api.libs.json.Reads
 import rx.lang.scala.Observable
+import rx.lang.scala.subjects.ReplaySubject
 
 import scala.concurrent.Future
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
@@ -95,53 +96,64 @@ class JenkinsClient(creds: JenkinsCredentials) extends AutoCloseable with Log {
       response.body.map(body => ConsoleProgress(body, size, !isOngoing))
     }
 
+  def buildDetails(job: JobName, number: BuildNumber): Future[BuildDetails] =
+    runGetAsJson[BuildDetails](jsonUrl(buildDetailsUrl(job, number)))
+
   /** Builds `job` and returns a stream of console output.
     *
     * @param job job to build
     * @param pollInterval implementation detail
     * @return a stream of console output
     */
-  def buildWithConsole(job: JobName, pollInterval: FiniteDuration = DefaultPollInterval): Observable[ConsoleProgress] =
-    buildWithProgress(job, pollInterval) concatMap {
-      case ConsoleUpdate(console) => Observable.just(console)
-      case _ => Observable.empty
-    }
+  def buildWithConsole(job: JobName, pollInterval: FiniteDuration = DefaultPollInterval): Observable[ConsoleProgress] = {
+    buildWithProgressTask(job, pollInterval).consoleUpdates
+  }
 
-  /** Builds `job` and returns queue, build and console output progress.
-    *
-    *
-    * @param job
-    * @param pollInterval
-    * @return
-    */
-  def buildWithProgress(job: JobName, pollInterval: FiniteDuration = DefaultPollInterval): Observable[BuildProgress] =
-    enqueueUntilBuilding(job, pollInterval) concatMap { queueItem =>
-      queueItem.executable
-        .map { build =>
-          val consoleUpdates = consoleStream(job, build.number, pollInterval).map(ConsoleUpdate.apply)
-          val buildUpdates = follow(job, build.number, pollInterval).map(BuildUpdate.apply)
-          consoleUpdates merge buildUpdates
-        }
-        .getOrElse(Observable.just(QueueUpdate(queueItem)))
-    }
+  def buildWithProgressTask(job: JobName, pollInterval: FiniteDuration = DefaultPollInterval): BuildTask = {
+    val queueTask = enqueueUntilBuildingTask(job, pollInterval)
+    val consoleUpdates = ReplaySubject[ConsoleProgress]()
+    val buildUpdates = ReplaySubject[BuildDetails]()
+    // waits for the queueing to complete, then, if a build was started, subscribes to build and console output events
+    queueTask.updates.lastOption.subscribe(maybeQueueItem =>
+      maybeQueueItem.flatMap(_.executable) map { build =>
+        val number = build.number
+        consoleStream(job, number, pollInterval).subscribe(consoleUpdates)
+        follow(job, number, pollInterval).subscribe(buildUpdates)
+      } getOrElse {
+        consoleUpdates.onCompleted()
+        buildUpdates.onCompleted()
+      }, err => {
+      consoleUpdates.onError(err)
+      buildUpdates.onError(err)
+    }, () => ()
+    )
+    BuildTask(queueTask, consoleUpdates, buildUpdates)
+  }
 
-  def enqueueUntilBuilding(job: JobName, pollInterval: FiniteDuration = DefaultPollInterval): Observable[QueueProgress] =
-    Observable.from(build(job)).concatMap { url =>
+  def enqueueUntilBuildingTask(job: JobName, pollInterval: FiniteDuration = DefaultPollInterval): QueueTask = {
+    val urlJob = build(job)
+    val subject = ReplaySubject[QueueProgress]()
+    urlJob map { url =>
       val queueUrl = jsonUrl(url)
       def queueInfo = runGetAsJson[QueueProgress](queueUrl)
-      Observables.pollUntilComplete(pollInterval)(queueInfo)
+      // do I after completion need to unsubscribe the returned subscription?
+      Observables.pollUntilComplete(pollInterval)(queueInfo).subscribe(subject)
+    } onFailure {
+      case t => subject.onError(t)
     }
+    QueueTask(urlJob, subject)
+  }
 
-  def follow(job: JobName, build: BuildNumber, pollInterval: FiniteDuration = DefaultPollInterval): Observable[BuildDetails] =
+  protected def follow(job: JobName, build: BuildNumber, pollInterval: FiniteDuration = DefaultPollInterval): Observable[BuildDetails] =
     Observables.pollUntilComplete(pollInterval)(buildDetails(job, build))
 
-  def consoleStream(name: JobName, number: BuildNumber, pollInterval: FiniteDuration = DefaultPollInterval): Observable[ConsoleProgress] =
+  protected def consoleStream(name: JobName, number: BuildNumber, pollInterval: FiniteDuration = DefaultPollInterval): Observable[ConsoleProgress] =
     consoleStream(name, number, ByteOffset.Zero, pollInterval).distinctUntilChanged(_.offset)
 
-  def consoleStream(name: JobName,
-                    number: BuildNumber,
-                    offset: ByteOffset,
-                    pollInterval: FiniteDuration): Observable[ConsoleProgress] =
+  protected def consoleStream(name: JobName,
+                              number: BuildNumber,
+                              offset: ByteOffset,
+                              pollInterval: FiniteDuration): Observable[ConsoleProgress] =
     Observable.from(consoleOutput(name, number, offset)) concatMap { consoleOut =>
       val next =
         if (consoleOut.isCompleted) Observable.empty
@@ -149,10 +161,7 @@ class JenkinsClient(creds: JenkinsCredentials) extends AutoCloseable with Log {
       Observable.just(consoleOut) ++ next
     }
 
-  def buildDetails(job: JobName, number: BuildNumber): Future[BuildDetails] =
-    runGetAsJson[BuildDetails](jsonUrl(buildDetailsUrl(job, number)))
-
-  def enqueue(job: JobName): Future[QueueProgress] =
+  protected def enqueue(job: JobName): Future[QueueProgress] =
     build(job).flatMap(url => runGetAsJson[QueueProgress](jsonUrl(url)))
 
   /** @param job the job name
