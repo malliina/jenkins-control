@@ -15,7 +15,7 @@ import rx.lang.scala.subjects.ReplaySubject
 
 import scala.concurrent.Future
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
-import scala.util.{Failure, Try}
+import scala.util.{Failure, Success, Try}
 
 object JenkinsClient {
   val DefaultPollInterval = 1.second
@@ -92,7 +92,7 @@ class JenkinsClient(creds: JenkinsCredentials) extends AutoCloseable with Log {
         .flatMap(s => Try(s.toLong).toOption)
         .map(ByteOffset.apply)
         .getOrElse(ByteOffset.Zero)
-      val isOngoing = response.firstHeaderValue(XMoreData).contains(True)
+      val isOngoing = response.firstHeaderValue(XMoreData).exists(_ == True)
       response.body.map(body => ConsoleProgress(body, size, !isOngoing))
     }
 
@@ -187,10 +187,17 @@ class JenkinsClient(creds: JenkinsCredentials) extends AutoCloseable with Log {
   protected def runGetAsJson[T](url: Url)(implicit r: Reads[T]): Future[T] =
     runParsed[T](url)(parse(url, _))
 
-  protected def runParsed[T](url: Url)(parse: RichResponse => Try[T]) =
+  protected def runParsed[T](url: Url)(parse: RichResponse => Try[T]): Future[T] =
     makeGet(url) flatMap { response =>
-      if (response.isSuccess) Future.fromTry(parse(response))
-      else Future.failed[T](new ResponseException(response, url))
+      if (response.isSuccess) {
+        parse(response) match {
+          case Success(r) => Future.successful(r)
+          case Failure(t) => Future.failed(t)
+        }
+      }
+      else {
+        Future.failed[T](new ResponseException(response, url))
+      }
     }
 
   def makeGet(url: Url): Future[RichResponse] = {
