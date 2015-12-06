@@ -29,6 +29,7 @@ object JenkinsClient {
   // Jenkins keywords
   val Api = "api"
   val BuildKey = "build"
+  val BuildWithParameters = "buildWithParameters"
   val CreateItem = "createItem"
   val DoDelete = "doDelete"
   val Json = "json"
@@ -42,10 +43,18 @@ object JenkinsClient {
   val True = "true"
 }
 
-/**
-  * @author mle
+/** A Jenkins HTTP client. Builds jobs and provides build progress updates in `Observable`s.
+  *
+  * This is a streaming API, however, Jenkins does not have a streaming API. So, we manufacture streams by polling the
+  * Jenkins HTTP API every `pollInterval` when needed.
+  *
+  * @param creds Jenkins credentials
+  * @param pollInterval the poll interval used for progress updates
   */
-class JenkinsClient(creds: JenkinsCredentials) extends AutoCloseable with Log {
+class JenkinsClient(creds: JenkinsCredentials, pollInterval: FiniteDuration = DefaultPollInterval)
+  extends AutoCloseable
+  with Log {
+
   val client = new AsyncHttp
   val host: Url = creds.host
 
@@ -58,17 +67,20 @@ class JenkinsClient(creds: JenkinsCredentials) extends AutoCloseable with Log {
   def buildJobUrl(name: JobName) =
     jobUrl(name) / s"$BuildKey?$TokenKey=${creds.token}"
 
+  def buildWithParametersUrl(name: JobName) =
+    jobUrl(name) / BuildWithParameters
+
   def apiJobUrl(name: JobName) =
     jsonUrl(jobUrl(name))
 
-  def jobUrl(name: JobName): Url =
-    host / Job / name.name
+  def consoleOutputUrl(name: JobName, number: BuildNumber, start: ByteOffset) =
+    buildDetailsUrl(name, number) / LogText / s"$ProgressiveText?$Start=${start.start}"
 
   def buildDetailsUrl(name: JobName, number: BuildNumber) =
     jobUrl(name) / s"${number.id}"
 
-  def consoleOutputUrl(name: JobName, number: BuildNumber, start: ByteOffset) =
-    buildDetailsUrl(name, number) / LogText / s"$ProgressiveText?$Start=${start.start}"
+  def jobUrl(name: JobName): Url =
+    host / Job / name.name
 
   def jsonUrl(base: Url): Url =
     base / Api / s"$Json?$Pretty=$True"
@@ -86,6 +98,21 @@ class JenkinsClient(creds: JenkinsCredentials) extends AutoCloseable with Log {
 
   def deleteJob(name: JobName) = makeRequest(_.client.preparePost(deleteJobUrl(name).url))
 
+  /** @param job the job name
+    * @return the URL to the queued `job`
+    */
+  def build(job: JobName): Future[Url] = {
+    val url = buildJobUrl(job)
+    makePost(url) flatMap (response => parseUrl(response, url))
+  }
+
+  def buildWithParameters(job: JobName, params: (String, String)*): Future[Url] = {
+    val url = buildWithParametersUrl(job)
+    log info s"POST $url"
+    val request = makeRequest(_.client.preparePost(url.url).addFormParameters(params: _*))
+    request flatMap (response => parseUrl(response, url))
+  }
+
   def consoleOutput(name: JobName, number: BuildNumber, offset: ByteOffset): Future[ConsoleProgress] =
     runParsed(consoleOutputUrl(name, number, offset)) { response =>
       val size = response.firstHeaderValue(XTextSize)
@@ -102,23 +129,22 @@ class JenkinsClient(creds: JenkinsCredentials) extends AutoCloseable with Log {
   /** Builds `job` and returns a stream of console output.
     *
     * @param job job to build
-    * @param pollInterval implementation detail
     * @return a stream of console output
     */
-  def buildWithConsole(job: JobName, pollInterval: FiniteDuration = DefaultPollInterval): Observable[ConsoleProgress] = {
-    buildWithProgressTask(job, pollInterval).consoleUpdates
+  def buildWithConsole(job: JobName): Observable[ConsoleProgress] = {
+    buildWithProgressTask(job).consoleUpdates
   }
 
-  def buildWithProgressTask(job: JobName, pollInterval: FiniteDuration = DefaultPollInterval): BuildTask = {
-    val queueTask = enqueueUntilBuildingTask(job, pollInterval)
+  def buildWithProgressTask(job: JobName): BuildTask = {
+    val queueTask = enqueueUntilBuildingTask(job)
     val consoleUpdates = ReplaySubject[ConsoleProgress]()
     val buildUpdates = ReplaySubject[BuildDetails]()
     // waits for the queueing to complete, then, if a build was started, subscribes to build and console output events
     queueTask.updates.lastOption.subscribe(maybeQueueItem =>
       maybeQueueItem.flatMap(_.executable) map { build =>
         val number = build.number
-        consoleStream(job, number, pollInterval).subscribe(consoleUpdates)
-        follow(job, number, pollInterval).subscribe(buildUpdates)
+        consoleStream(job, number).subscribe(consoleUpdates)
+        follow(job, number).subscribe(buildUpdates)
       } getOrElse {
         consoleUpdates.onCompleted()
         buildUpdates.onCompleted()
@@ -130,8 +156,10 @@ class JenkinsClient(creds: JenkinsCredentials) extends AutoCloseable with Log {
     BuildTask(queueTask, consoleUpdates, buildUpdates)
   }
 
-  def enqueueUntilBuildingTask(job: JobName, pollInterval: FiniteDuration = DefaultPollInterval): QueueTask = {
-    val urlJob = build(job)
+  def enqueueUntilBuildingTask(job: JobName, params: (String, String)*): QueueTask = {
+    val urlJob =
+      if(params.isEmpty) build(job)
+      else buildWithParameters(job, params: _*)
     val subject = ReplaySubject[QueueProgress]()
     urlJob map { url =>
       val queueUrl = jsonUrl(url)
@@ -144,10 +172,10 @@ class JenkinsClient(creds: JenkinsCredentials) extends AutoCloseable with Log {
     QueueTask(urlJob, subject)
   }
 
-  protected def follow(job: JobName, build: BuildNumber, pollInterval: FiniteDuration = DefaultPollInterval): Observable[BuildDetails] =
+  protected def follow(job: JobName, build: BuildNumber): Observable[BuildDetails] =
     Observables.pollUntilComplete(pollInterval)(buildDetails(job, build))
 
-  protected def consoleStream(name: JobName, number: BuildNumber, pollInterval: FiniteDuration = DefaultPollInterval): Observable[ConsoleProgress] =
+  protected def consoleStream(name: JobName, number: BuildNumber): Observable[ConsoleProgress] =
     consoleStream(name, number, ByteOffset.Zero, pollInterval).distinctUntilChanged(_.offset)
 
   protected def consoleStream(name: JobName,
@@ -164,23 +192,17 @@ class JenkinsClient(creds: JenkinsCredentials) extends AutoCloseable with Log {
   protected def enqueue(job: JobName): Future[QueueProgress] =
     build(job).flatMap(url => runGetAsJson[QueueProgress](jsonUrl(url)))
 
-  /** @param job the job name
-    * @return the URL to the queued `job`
-    */
-  def build(job: JobName): Future[Url] = {
-    val url = buildJobUrl(job)
-    makePost(url) flatMap { response =>
-      def fail = Future.failed[Url](new ResponseException(response, url))
-      if (response.status == StatusCodes.Accepted) {
-        val maybeLocation = for {
-          locationHeaderValue <- response.firstHeaderValue(Location)
-        } yield Url.build(locationHeaderValue)
-        maybeLocation
-          .map(url => Future.successful(url))
-          .getOrElse(fail)
-      } else {
-        fail
-      }
+  private def parseUrl(response: RichResponse, url: Url) =
+    toFuture(parseUrlFromResponse(response, url))
+
+  private def parseUrlFromResponse(response: RichResponse, url: Url): Try[Url] = {
+    def fail = Failure[Url](new ResponseException(response, url))
+    if (response.status == StatusCodes.Accepted) {
+      response.firstHeaderValue(Location)
+        .map(location => Success(Url.build(location)))
+        .getOrElse(fail)
+    } else {
+      fail
     }
   }
 
@@ -189,15 +211,8 @@ class JenkinsClient(creds: JenkinsCredentials) extends AutoCloseable with Log {
 
   protected def runParsed[T](url: Url)(parse: RichResponse => Try[T]): Future[T] =
     makeGet(url) flatMap { response =>
-      if (response.isSuccess) {
-        parse(response) match {
-          case Success(r) => Future.successful(r)
-          case Failure(t) => Future.failed(t)
-        }
-      }
-      else {
-        Future.failed[T](new ResponseException(response, url))
-      }
+      if (response.isSuccess) toFuture(parse(response))
+      else Future.failed[T](new ResponseException(response, url))
     }
 
   def makeGet(url: Url): Future[RichResponse] = {
@@ -223,6 +238,11 @@ class JenkinsClient(creds: JenkinsCredentials) extends AutoCloseable with Log {
       .recoverWith {
         case e: Exception => Failure(new JsonException(url, response, e))
       }
+  }
+
+  private def toFuture[T](attempt: Try[T]): Future[T] = attempt match {
+    case Success(t) => Future.successful(t)
+    case Failure(t) => Future.failed(t)
   }
 
   def close(): Unit = {

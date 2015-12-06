@@ -24,9 +24,7 @@ case class QueueProgress(actions: Seq[QueueActions],
 
   def isInProgress = !isCompleted
 
-  def isCompleted = buildExists || cancelled.isDefined
-
-  def buildExists = executable.isDefined
+  def isCompleted = executable.isDefined || cancelled.isDefined
 }
 
 object QueueProgress {

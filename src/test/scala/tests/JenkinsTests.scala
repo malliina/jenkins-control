@@ -87,6 +87,14 @@ class JenkinsTests extends BaseSuite with BeforeAndAfter {
     }
   }
 
+//  test("POST to build with parameters") {
+//    withClient { client =>
+//      val request = client.buildWithParameters(testJob, "foo" -> "bar")
+//      val url = await(request)
+//      assert(url.url startsWith "http")
+//    }
+//  }
+
   test("create/delete job") {
     withClient { client =>
       val creation = await(client.createJob(testJob, testJobConfig))
@@ -97,11 +105,11 @@ class JenkinsTests extends BaseSuite with BeforeAndAfter {
   }
 
   override protected def before(fun: => Any): Unit = {
-    withClient(client => client.createJob(testJob, testJobConfig))
+    withClient(client => await(client.createJob(testJob, testJobConfig)))
   }
 
   override protected def after(fun: => Any): Unit = {
-    withClient(client => client.deleteJob(testJob))
+    withClient(client => await(client.deleteJob(testJob)))
   }
 
   def withClient[T](f: JenkinsClient => T): T = Util.using(new JenkinsClient(creds))(f)
