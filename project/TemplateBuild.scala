@@ -14,7 +14,7 @@ object TemplateBuild extends Build {
   val mleGroup = "com.github.malliina"
 
   lazy val projectSettings = Seq(
-    version := "0.0.5",
+    version := "0.0.9",
     scalaVersion := "2.11.7",
     organization := mleGroup,
     crossScalaVersions := Seq("2.10.6", scalaVersion.value),

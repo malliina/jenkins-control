@@ -7,7 +7,7 @@ import play.api.libs.json.Json
 /**
   * @author mle
   */
-case class QueueProgress(actions: Seq[QueueActions],
+case class QueueProgress(actions: Actions,
                          blocked: Boolean,
                          buildable: Boolean,
                          id: QueueId,

@@ -106,10 +106,10 @@ class JenkinsClient(creds: JenkinsCredentials, pollInterval: FiniteDuration = De
     makePost(url) flatMap (response => parseUrl(response, url))
   }
 
-  def buildWithParameters(job: JobName, params: (String, String)*): Future[Url] = {
-    val url = buildWithParametersUrl(job)
+  def buildWithParameters(order: BuildOrder): Future[Url] = {
+    val url = buildWithParametersUrl(order.job)
     log info s"POST $url"
-    val request = makeRequest(_.client.preparePost(url.url).addFormParameters(params: _*))
+    val request = makeRequest(_.client.preparePost(url.url).addFormParameters(order.parameters.toSeq: _*))
     request flatMap (response => parseUrl(response, url))
   }
 
@@ -128,38 +128,43 @@ class JenkinsClient(creds: JenkinsCredentials, pollInterval: FiniteDuration = De
 
   /** Builds `job` and returns a stream of console output.
     *
-    * @param job job to build
+    * @param order build order
     * @return a stream of console output
     */
-  def buildWithConsole(job: JobName): Observable[ConsoleProgress] = {
-    buildWithProgressTask(job).consoleUpdates
+  def buildWithConsole(order: BuildOrder): Observable[ConsoleProgress] = {
+    buildWithProgressTask(order).consoleUpdates
   }
 
-  def buildWithProgressTask(job: JobName): BuildTask = {
-    val queueTask = enqueueUntilBuildingTask(job)
+  def buildWithProgressTask(order: BuildOrder): BuildTask = {
+    val queueTask = enqueueUntilBuildingTask(order)
     val consoleUpdates = ReplaySubject[ConsoleProgress]()
     val buildUpdates = ReplaySubject[BuildDetails]()
     // waits for the queueing to complete, then, if a build was started, subscribes to build and console output events
-    queueTask.updates.lastOption.subscribe(maybeQueueItem =>
-      maybeQueueItem.flatMap(_.executable) map { build =>
-        val number = build.number
-        consoleStream(job, number).subscribe(consoleUpdates)
-        follow(job, number).subscribe(buildUpdates)
-      } getOrElse {
-        consoleUpdates.onCompleted()
-        buildUpdates.onCompleted()
-      }, err => {
-      consoleUpdates.onError(err)
-      buildUpdates.onError(err)
-    }, () => ()
+    queueTask.updates.lastOption.subscribe(
+      maybeQueueItem =>
+        maybeQueueItem.flatMap(_.executable) map { build =>
+          val job = order.job
+          val number = build.number
+          consoleStream(job, number).subscribe(consoleUpdates)
+          follow(job, number).subscribe(buildUpdates)
+        } getOrElse {
+          consoleUpdates.onCompleted()
+          buildUpdates.onCompleted()
+        },
+      err => {
+        consoleUpdates.onError(err)
+        buildUpdates.onError(err)
+      },
+      () => ()
     )
     BuildTask(queueTask, consoleUpdates, buildUpdates)
   }
 
-  def enqueueUntilBuildingTask(job: JobName, params: (String, String)*): QueueTask = {
+  def enqueueUntilBuildingTask(order: BuildOrder): QueueTask = {
+    val params = order.parameters
     val urlJob =
-      if(params.isEmpty) build(job)
-      else buildWithParameters(job, params: _*)
+      if (params.isEmpty) build(order.job)
+      else buildWithParameters(order)
     val subject = ReplaySubject[QueueProgress]()
     urlJob map { url =>
       val queueUrl = jsonUrl(url)
