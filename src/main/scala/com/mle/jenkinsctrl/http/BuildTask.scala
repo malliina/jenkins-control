@@ -6,7 +6,11 @@ import rx.lang.scala.Observable
 /**
   * @author mle
   */
-case class BuildTask(queueTask: QueueTask, consoleUpdates: Observable[ConsoleProgress], buildUpdates: Observable[BuildDetails]) {
+case class BuildTask(order: BuildOrder,
+                     queueTask: QueueTask,
+                     consoleUpdates: Observable[ConsoleProgress],
+                     buildUpdates: Observable[BuildDetails]) {
+  val job = order.job
   val queueUpdates = queueTask.updates
   val materialized: Observable[BuildProgress] =
     queueUpdates.map(QueueUpdate.apply) merge

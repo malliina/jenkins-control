@@ -108,7 +108,7 @@ class JenkinsClient(creds: JenkinsCredentials, pollInterval: FiniteDuration = De
 
   def buildWithParameters(order: BuildOrder): Future[Url] = {
     val url = buildWithParametersUrl(order.job)
-    log info s"POST $url"
+    log debug s"POST $url"
     val request = makeRequest(_.client.preparePost(url.url).addFormParameters(order.parameters.toSeq: _*))
     request flatMap (response => parseUrl(response, url))
   }
@@ -157,7 +157,7 @@ class JenkinsClient(creds: JenkinsCredentials, pollInterval: FiniteDuration = De
       },
       () => ()
     )
-    BuildTask(queueTask, consoleUpdates, buildUpdates)
+    BuildTask(order, queueTask, consoleUpdates, buildUpdates)
   }
 
   def enqueueUntilBuildingTask(order: BuildOrder): QueueTask = {
@@ -221,12 +221,12 @@ class JenkinsClient(creds: JenkinsCredentials, pollInterval: FiniteDuration = De
     }
 
   def makeGet(url: Url): Future[RichResponse] = {
-    log info s"GET $url"
+    log debug s"GET $url"
     makeRequest(_.get(url.url))
   }
 
   def makePost(url: Url): Future[RichResponse] = {
-    log info s"POST $url"
+    log debug s"POST $url"
     makeRequest(_.client.preparePost(url.url))
   }
 
