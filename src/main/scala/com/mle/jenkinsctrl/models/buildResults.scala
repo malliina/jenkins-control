@@ -5,20 +5,20 @@ import com.mle.json.JsonEnum
 /**
   * @author mle
   */
-case object Success extends BuildResult("SUCCESS")
+case object BuildSuccess extends BuildResult("SUCCESS")
 
-case object Unstable extends BuildResult("UNSTABLE")
+case object BuildUnstable extends BuildResult("UNSTABLE")
 
-case object Failure extends BuildResult("FAILURE")
+case object BuildFailure extends BuildResult("FAILURE")
 
-case object NotBuilt extends BuildResult("NOT_BUILT")
+case object BuildNotBuilt extends BuildResult("NOT_BUILT")
 
-case object Aborted extends BuildResult("ABORTED")
+case object BuildAborted extends BuildResult("ABORTED")
 
 sealed abstract class BuildResult(val name: String) extends NamedEntity
 
 object BuildResult extends JsonEnum[BuildResult] {
-  override lazy val all: Seq[BuildResult] = Seq(Success, Unstable, Failure, NotBuilt, Aborted)
+  override lazy val all: Seq[BuildResult] = Seq(BuildSuccess, BuildUnstable, BuildFailure, BuildNotBuilt, BuildAborted)
 
   override def resolveName(item: BuildResult): String = item.name
 }

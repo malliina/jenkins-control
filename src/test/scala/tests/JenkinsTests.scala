@@ -94,34 +94,37 @@ class JenkinsTests extends BaseSuite with BeforeAndAfter {
     }
   }
 
-  test("GET build details") {
+  test("can create job, query jobs, build job, query build, get job details and delete job") {
     withClient { client =>
       val jobsRequest: Future[Seq[VerboseJob]] = for {
+        creation <- client.createJob(testJob, testJobConfig)
         overview <- client.overview()
+        task <- client.buildWithProgressTask(BuildOrder.simple(testJob)).result
         jobNames = overview.jobs.map(_.name)
         verboseJobs <- Future.traverse(jobNames)(name => client.job(name))
       } yield verboseJobs
-      val jobs = await(jobsRequest)
+      val jobs = awaitForLong(jobsRequest)
       assert(jobs.size >= 0)
-      val job = jobs.head
-      val builds = job.builds
-      if (builds.nonEmpty) {
-        val detailsRequest = client.buildDetails(job.name, builds.head.number)
-        await(detailsRequest)
-      }
+      val job = jobs.find(_.name == testJob)
+      assert(job.isDefined)
+      val builds = job.get.builds
+      assert(builds.nonEmpty)
+      val build = builds.head
+      val detailsRequest = client.buildDetails(testJob, build.number)
+      await(detailsRequest)
+      await(client.deleteJob(testJob))
     }
   }
 
   test("POST to build job") {
     withClient { client =>
-      def followWork() = client.buildWithProgressTask(BuildOrder.simple(testJob))
       val work = for {
         creation <- client.createJob(testJob, testJobConfig)
-        task = followWork().materialized.toBlocking.lastOption
+        task <- client.buildWithProgressTask(BuildOrder.simple(testJob)).result
         deletion <- client.deleteJob(testJob)
       } yield task
-      val lastProgress = awaitForLong(work)
-      assert(lastProgress.exists(_.info.isCompleted))
+      val result = awaitForLong(work)
+      assert(result === BuildSuccess)
     }
   }
 
@@ -129,7 +132,7 @@ class JenkinsTests extends BaseSuite with BeforeAndAfter {
     withClient { client =>
       val exception = for {
         creation <- client.createJob(parameterizedJobName, parameterizedBuildConfig)
-        responseException = intercept[ResponseException](await(client.build(JobName("para"))))
+        responseException = intercept[ResponseException](await(client.build(parameterizedJobName)))
         deletion <- client.deleteJob(parameterizedJobName)
       } yield responseException
       assert(await(exception).statusCode === 400)
@@ -140,11 +143,11 @@ class JenkinsTests extends BaseSuite with BeforeAndAfter {
     withClient { client =>
       val work = for {
         creation <- client.createJob(parameterizedJobName, parameterizedBuildConfig)
-        task = client.buildWithProgressTask(BuildOrder(parameterizedJobName, Map("VERSION" -> "1.0.0"))).consoleUpdates.toBlocking.lastOption
+        result <- client.buildWithProgressTask(BuildOrder(parameterizedJobName, Map("VERSION" -> "1.0.0"))).result
         deletion <- client.deleteJob(parameterizedJobName)
-      } yield task
-      val maybeProgress = awaitForLong(work)
-      assert(maybeProgress.exists(_.isCompleted))
+      } yield result
+      val result = awaitForLong(work)
+      assert(result === BuildSuccess)
     }
   }
 

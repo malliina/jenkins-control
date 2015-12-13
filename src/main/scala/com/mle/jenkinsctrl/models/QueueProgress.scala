@@ -20,10 +20,6 @@ case class QueueProgress(actions: Actions,
                          cancelled: Option[Boolean],
                          executable: Option[Build],
                          timestamp: Option[DateTime]) extends Completable {
-  def isInQueue = why.isDefined
-
-  def isInProgress = !isCompleted
-
   def isCompleted = executable.isDefined || cancelled.isDefined
 }
 

@@ -13,8 +13,8 @@ import play.api.libs.json.Reads
 import rx.lang.scala.Observable
 import rx.lang.scala.subjects.ReplaySubject
 
-import scala.concurrent.Future
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.concurrent.{Future, Promise}
 import scala.util.{Failure, Success, Try}
 
 object JenkinsClient {
@@ -136,28 +136,47 @@ class JenkinsClient(creds: JenkinsCredentials, pollInterval: FiniteDuration = De
   }
 
   def buildWithProgressTask(order: BuildOrder): BuildTask = {
+    val result = Promise[BuildResult]()
     val queueTask = enqueueUntilBuildingTask(order)
     val consoleUpdates = ReplaySubject[ConsoleProgress]()
     val buildUpdates = ReplaySubject[BuildDetails]()
-    // waits for the queueing to complete, then, if a build was started, subscribes to build and console output events
+    buildUpdates.lastOption.subscribe(
+      last => {
+        val lastResultOrFailure: BuildResult = last.flatMap(_.result) getOrElse BuildFailure
+        result.trySuccess(lastResultOrFailure)
+      },
+      err => {
+        result.tryFailure(err)
+      },
+      () => {
+        result.trySuccess(BuildFailure)
+      })
+    // 1) Waits for the queueing to complete, then,
+    // 2) If a build was started, subscribes to build and console output events
     queueTask.updates.lastOption.subscribe(
-      maybeQueueItem =>
-        maybeQueueItem.flatMap(_.executable) map { build =>
+      queueingUpdate => {
+        queueingUpdate.flatMap(_.executable) map { build =>
+          // done queueing, got a build
           val job = order.job
           val number = build.number
           consoleStream(job, number).subscribe(consoleUpdates)
           follow(job, number).subscribe(buildUpdates)
         } getOrElse {
+          // done queueing, but no build was started (can this happen?)
           consoleUpdates.onCompleted()
           buildUpdates.onCompleted()
-        },
-      err => {
-        consoleUpdates.onError(err)
-        buildUpdates.onError(err)
+        }
       },
-      () => ()
+      queueingError => {
+        consoleUpdates.onError(queueingError)
+        buildUpdates.onError(queueingError)
+      },
+      () => {
+        // queueing has completed
+        ()
+      }
     )
-    BuildTask(order, queueTask, consoleUpdates, buildUpdates)
+    BuildTask(order, queueTask, consoleUpdates, buildUpdates, result.future)
   }
 
   def enqueueUntilBuildingTask(order: BuildOrder): QueueTask = {
