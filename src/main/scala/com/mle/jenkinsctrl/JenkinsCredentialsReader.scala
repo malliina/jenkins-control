@@ -3,17 +3,15 @@ package com.mle.jenkinsctrl
 import java.nio.file.Path
 
 import com.mle.file.{FileUtilities, StorageFile}
-import com.mle.jenkinsctrl.CredentialsReader._
+import com.mle.jenkinsctrl.JenkinsCredentialsReader._
 import com.mle.jenkinsctrl.models.{Token, Url}
 import com.mle.util.BaseConfigReader
 
 /**
   * @author mle
   */
-class CredentialsReader extends BaseConfigReader[JenkinsCredentials] {
-  override def userHomeConfPath: Path = FileUtilities.userHome / "keys" / "jenkins.key"
-
-  override def resourceCredential: String = "unused"
+class JenkinsCredentialsReader extends BaseConfigReader[JenkinsCredentials] {
+  override def filePath: Option[Path] = Some(FileUtilities.userHome / "keys" / "jenkins.key")
 
   override def fromMapOpt(map: Map[String, String]): Option[JenkinsCredentials] = {
     for {
@@ -25,7 +23,7 @@ class CredentialsReader extends BaseConfigReader[JenkinsCredentials] {
   }
 }
 
-object CredentialsReader {
+object JenkinsCredentialsReader {
   val Host = "host"
   val User = "user"
   val Pass = "pass"

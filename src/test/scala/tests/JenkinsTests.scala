@@ -1,7 +1,7 @@
 package tests
 
 import com.mle.concurrent.ExecutionContexts.cached
-import com.mle.jenkinsctrl.CredentialsReader
+import com.mle.jenkinsctrl.JenkinsCredentialsReader
 import com.mle.jenkinsctrl.http.{JenkinsClient, ResponseException}
 import com.mle.jenkinsctrl.models._
 import com.mle.util.Util
@@ -73,7 +73,7 @@ class JenkinsTests extends BaseSuite with BeforeAndAfter {
   val testJob = JobName("testjob")
   val parameterizedJobName = JobName("para-test")
 
-  val creds = new CredentialsReader().load
+  val creds = new JenkinsCredentialsReader().load
 
   test("GET overview") {
     withClient { client =>

@@ -14,13 +14,13 @@ object TemplateBuild extends Build {
   val mleGroup = "com.github.malliina"
 
   lazy val projectSettings = Seq(
-    version := "0.1.1",
+    version := "0.1.2",
     scalaVersion := "2.11.7",
     organization := mleGroup,
     crossScalaVersions := Seq("2.10.6", scalaVersion.value),
     fork in Test := true,
     libraryDependencies ++= Seq(
-      mleGroup %% "util" % "2.0.0"
+      mleGroup %% "util" % "2.0.1"
     ),
     licenses +=("MIT", url("http://opensource.org/licenses/MIT"))
   )
