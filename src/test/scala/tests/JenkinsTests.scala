@@ -1,10 +1,10 @@
 package tests
 
-import com.mle.concurrent.ExecutionContexts.cached
-import com.mle.jenkinsctrl.JenkinsCredentialsReader
-import com.mle.jenkinsctrl.http.{JenkinsClient, ResponseException}
-import com.mle.jenkinsctrl.models._
-import com.mle.util.Util
+import com.malliina.concurrent.ExecutionContexts.cached
+import com.malliina.jenkinsctrl.JenkinsCredentialsReader
+import com.malliina.jenkinsctrl.http.{JenkinsClient, ResponseException}
+import com.malliina.jenkinsctrl.models._
+import com.malliina.util.Util
 import org.scalatest.BeforeAndAfter
 
 import scala.concurrent.Future
