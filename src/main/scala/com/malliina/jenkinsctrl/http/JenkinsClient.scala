@@ -251,7 +251,7 @@ class JenkinsClient(creds: JenkinsCredentials, pollInterval: FiniteDuration = De
 
   def makeRequest(f: AsyncHttp => AsyncHttp.RequestBuilder): Future[RichResponse] = {
     val builder = f(client)
-      .setBasicAuth(creds.user, creds.pass)
+      .setBasicAuth(creds.user, creds.token.token)
       .setHeader(Accept, AsyncHttp.JSON)
     builder.run().map(r => RichResponse(r))
   }

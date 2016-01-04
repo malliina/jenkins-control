@@ -17,15 +17,13 @@ class JenkinsCredentialsReader extends BaseConfigReader[JenkinsCredentials] {
     for {
       host <- map get Host
       user <- map get User
-      pass <- map get Pass
       token <- map get TokenKey
-    } yield JenkinsCredentials(Url.build(host), user, pass, Token(token))
+    } yield JenkinsCredentials(Url.build(host), user, Token(token))
   }
 }
 
 object JenkinsCredentialsReader {
   val Host = "host"
   val User = "user"
-  val Pass = "pass"
   val TokenKey = "token"
 }
