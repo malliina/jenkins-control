@@ -20,10 +20,10 @@ import scala.util.{Failure, Success, Try}
 object JenkinsClient {
   val DefaultPollInterval = 1.second
   val Accept = "Accept"
+  val ContentType = "Content-Type"
   val Location = "Location"
   val XMoreData = "X-More-Data"
   val XTextSize = "X-Text-Size"
-  val ContentType = "Content-Type"
   val Xml = "application/xml"
 
   // Jenkins keywords
@@ -32,14 +32,14 @@ object JenkinsClient {
   val BuildWithParameters = "buildWithParameters"
   val CreateItem = "createItem"
   val DoDelete = "doDelete"
-  val Json = "json"
   val Job = "job"
-  val Pretty = "pretty"
-  val TokenKey = "token"
-  val Name = "name"
+  val Json = "json"
   val LogText = "logText"
+  val Name = "name"
+  val Pretty = "pretty"
   val ProgressiveText = "progressiveText"
   val Start = "start"
+  val TokenKey = "token"
   val True = "true"
 }
 
@@ -223,11 +223,23 @@ class JenkinsClient(creds: JenkinsCredentials, pollInterval: FiniteDuration = De
     def fail = Failure[Url](new ResponseException(response, url))
     if (response.status == StatusCodes.Accepted) {
       response.firstHeaderValue(Location)
-        .map(location => Success(Url.build(location)))
+        .map(location => Success(locationUrl(location)))
         .getOrElse(fail)
     } else {
       fail
     }
+  }
+
+  /** Returns an `Url` of `location`, which has the same protocol as this client's `host`.
+    *
+    * Hack around situations where we use https, but the Jenkins API returns http resources.
+    *
+    * @param location location url
+    * @return a possibly https url of `location`
+    */
+  def locationUrl(location: String): Url = {
+    val url = Url.build(location)
+    if(host.isHttps) url.toHttps else url
   }
 
   protected def runGetAsJson[T](url: Url)(implicit r: Reads[T]): Future[T] =
