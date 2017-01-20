@@ -21,8 +21,9 @@ object JenkinsControlBuild {
     developerName := "Michael Skogberg",
     crossScalaVersions := Seq("2.10.6", scalaVersion.value),
     fork in Test := true,
+    resolvers += Resolver.bintrayRepo("malliina", "maven"),
     libraryDependencies ++= Seq(
-      malliinaGroup %% "util" % "2.1.0"
+      malliinaGroup %% "util" % "2.2.0"
     )
   )
 }
