@@ -3,9 +3,6 @@ package tests
 import com.malliina.jenkinsctrl.models.Url
 import org.scalatest.FunSuite
 
-/**
-  * @author mle
-  */
 class UrlTests extends FunSuite {
   test("can get http protocol from Url") {
     val url = Url.build("http://www.google.com")

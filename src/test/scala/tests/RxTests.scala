@@ -4,8 +4,6 @@ import rx.lang.scala.{Observable, Subject}
 
 import scala.concurrent.Promise
 
-/**
-  */
 class RxTests extends BaseSuite {
   test("Observable.error propagates to subscriber") {
     val o = Observable.error(new Exception("boom"))

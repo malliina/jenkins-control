@@ -9,9 +9,6 @@ import org.scalatest.BeforeAndAfter
 
 import scala.concurrent.Future
 
-/**
-  * @author mle
-  */
 class JenkinsTests extends BaseSuite with BeforeAndAfter {
   val testJobConfig =
     """
@@ -73,16 +70,16 @@ class JenkinsTests extends BaseSuite with BeforeAndAfter {
   val testJob = JobName("testjob")
   val parameterizedJobName = JobName("para-test")
 
-  val creds = new JenkinsCredentialsReader().load
+  lazy val creds = new JenkinsCredentialsReader().load
 
-  test("GET overview") {
+  ignore("GET overview") {
     withClient { client =>
       val response = await(client.overview())
       assert(response.numExecutors > 0)
     }
   }
 
-  test("GET job details") {
+  ignore("GET job details") {
     withClient { client =>
       val verboseJobs: Future[Seq[VerboseJob]] = for {
         overview <- client.overview()
@@ -94,7 +91,7 @@ class JenkinsTests extends BaseSuite with BeforeAndAfter {
     }
   }
 
-  test("can create job, query jobs, build job, query build, get job details and delete job") {
+  ignore("can create job, query jobs, build job, query build, get job details and delete job") {
     withClient { client =>
       val jobsRequest: Future[Seq[VerboseJob]] = for {
         creation <- client.createJob(testJob, testJobConfig)
@@ -116,7 +113,7 @@ class JenkinsTests extends BaseSuite with BeforeAndAfter {
     }
   }
 
-  test("POST to build job") {
+  ignore("POST to build job") {
     withClient { client =>
       val work = for {
         creation <- client.createJob(testJob, testJobConfig)
@@ -128,7 +125,7 @@ class JenkinsTests extends BaseSuite with BeforeAndAfter {
     }
   }
 
-  test("supplying no parameters to a parameterized build returns 400") {
+  ignore("supplying no parameters to a parameterized build returns 400") {
     withClient { client =>
       val exception = for {
         creation <- client.createJob(parameterizedJobName, parameterizedBuildConfig)
@@ -139,7 +136,7 @@ class JenkinsTests extends BaseSuite with BeforeAndAfter {
     }
   }
 
-  test("follow a parameterized build") {
+  ignore("follow a parameterized build") {
     withClient { client =>
       val work = for {
         creation <- client.createJob(parameterizedJobName, parameterizedBuildConfig)
@@ -151,7 +148,7 @@ class JenkinsTests extends BaseSuite with BeforeAndAfter {
     }
   }
 
-  test("create/delete job") {
+  ignore("create/delete job") {
     withClient { client =>
       val creation = await(client.createJob(testJob, testJobConfig))
       assert(creation.status === 200)
@@ -160,13 +157,13 @@ class JenkinsTests extends BaseSuite with BeforeAndAfter {
     }
   }
 
-  override protected def before(fun: => Any): Unit = {
-    withClient(client => await(client.createJob(testJob, testJobConfig)))
-  }
-
-  override protected def after(fun: => Any): Unit = {
-    withClient(client => await(client.deleteJob(testJob)))
-  }
+//  override protected def before(fun: => Any): Unit = {
+//    withClient(client => await(client.createJob(testJob, testJobConfig)))
+//  }
+//
+//  override protected def after(fun: => Any): Unit = {
+//    withClient(client => await(client.deleteJob(testJob)))
+//  }
 
   def withClient[T](f: JenkinsClient => T): T = Util.using(new JenkinsClient(creds))(f)
 }
