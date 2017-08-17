@@ -3,7 +3,7 @@
 
 # jenkins-control
 
-This library provides a Scala API to the Jenkins REST API. Work in progress.
+This library provides a Scala API to the Jenkins REST API.
 
 ## Goals
 

@@ -2,13 +2,14 @@ package com.malliina.jenkinsctrl.http
 
 import com.malliina.concurrent.ExecutionContexts.cached
 import com.malliina.concurrent.Observables
-import com.malliina.http.AsyncHttp
-import com.malliina.http.AsyncHttp.RichRequestBuilder
+import com.malliina.http.{AsyncHttp, WebResponse}
 import com.malliina.jenkinsctrl.JenkinsCredentials
 import com.malliina.jenkinsctrl.http.JenkinsClient._
 import com.malliina.jenkinsctrl.json.JsonException
 import com.malliina.jenkinsctrl.models._
 import com.malliina.util.Log
+import org.apache.http.client.methods.RequestBuilder
+import org.apache.http.entity.StringEntity
 import play.api.libs.json.Reads
 import rx.lang.scala.Observable
 import rx.lang.scala.subjects.ReplaySubject
@@ -48,12 +49,12 @@ object JenkinsClient {
   * This is a streaming API, however, Jenkins does not have a streaming API. So, we manufacture streams by polling the
   * Jenkins HTTP API every `pollInterval` when needed.
   *
-  * @param creds Jenkins credentials
+  * @param creds        Jenkins credentials
   * @param pollInterval the poll interval used for progress updates
   */
 class JenkinsClient(creds: JenkinsCredentials, pollInterval: FiniteDuration = DefaultPollInterval)
   extends AutoCloseable
-  with Log {
+    with Log {
 
   val client = new AsyncHttp
   val host: Url = creds.host
@@ -89,14 +90,20 @@ class JenkinsClient(creds: JenkinsCredentials, pollInterval: FiniteDuration = De
 
   def job(name: JobName): Future[VerboseJob] = runGetAsJson[VerboseJob](apiJobUrl(name))
 
-  def createJob(name: JobName, xml: String): Future[RichResponse] =
-    makeRequest(_.client
-      .preparePost(createJobUrl.url)
-      .setBody(xml)
-      .addQueryParam(Name, name.name)
-      .setHeader(ContentType, Xml))
+  def createJob(name: JobName, xml: String): Future[WebResponse] = {
+    AsyncHttp.withClient { client =>
+      val req = client.postRequest(createJobUrl.url, Map(ContentType -> Xml), Map(Name -> name.name))
+        .setEntity(new StringEntity(xml, Xml))
+        .build()
+      client execute req
+    }
+  }
 
-  def deleteJob(name: JobName) = makeRequest(_.client.preparePost(deleteJobUrl(name).url))
+  def deleteJob(name: JobName) = {
+    makeRequest { client =>
+      client.postRequest(deleteJobUrl(name).url)
+    }
+  }
 
   /** @param job the job name
     * @return the URL to the queued `job`
@@ -109,18 +116,18 @@ class JenkinsClient(creds: JenkinsCredentials, pollInterval: FiniteDuration = De
   def buildWithParameters(order: BuildOrder): Future[Url] = {
     val url = buildWithParametersUrl(order.job)
     log debug s"POST $url"
-    val request = makeRequest(_.client.preparePost(url.url).addFormParameters(order.parameters.toSeq: _*))
+    val request = makeRequest(_.postRequest(url.url, params = order.parameters))
     request flatMap (response => parseUrl(response, url))
   }
 
   def consoleOutput(name: JobName, number: BuildNumber, offset: ByteOffset): Future[ConsoleProgress] =
     runParsed(consoleOutputUrl(name, number, offset)) { response =>
-      val size = response.firstHeaderValue(XTextSize)
-        .flatMap(s => Try(s.toLong).toOption)
+      val size = Option(response.inner.getFirstHeader(XTextSize))
+        .flatMap(s => Try(s.getValue.toLong).toOption)
         .map(ByteOffset.apply)
         .getOrElse(ByteOffset.Zero)
-      val isOngoing = response.firstHeaderValue(XMoreData).exists(_ == True)
-      response.body.map(body => ConsoleProgress(body, size, !isOngoing))
+      val isOngoing = Option(response.inner.getFirstHeader(XMoreData)).exists(_.getValue == True)
+      Try(response.asString).map(body => ConsoleProgress(body, size, !isOngoing))
     }
 
   def buildDetails(job: JobName, number: BuildNumber): Future[BuildDetails] =
@@ -187,7 +194,9 @@ class JenkinsClient(creds: JenkinsCredentials, pollInterval: FiniteDuration = De
     val subject = ReplaySubject[QueueProgress]()
     urlJob map { url =>
       val queueUrl = jsonUrl(url)
+
       def queueInfo = runGetAsJson[QueueProgress](queueUrl)
+
       // do I after completion need to unsubscribe the returned subscription?
       Observables.pollUntilComplete(pollInterval)(queueInfo).subscribe(subject)
     } onFailure {
@@ -216,14 +225,15 @@ class JenkinsClient(creds: JenkinsCredentials, pollInterval: FiniteDuration = De
   protected def enqueue(job: JobName): Future[QueueProgress] =
     build(job).flatMap(url => runGetAsJson[QueueProgress](jsonUrl(url)))
 
-  private def parseUrl(response: RichResponse, url: Url) =
-    toFuture(parseUrlFromResponse(response, url))
+  private def parseUrl(response: WebResponse, url: Url) =
+    Future.fromTry(parseUrlFromResponse(response, url))
 
-  private def parseUrlFromResponse(response: RichResponse, url: Url): Try[Url] = {
+  private def parseUrlFromResponse(response: WebResponse, url: Url): Try[Url] = {
     def fail = Failure[Url](new ResponseException(response, url))
-    if (response.status == StatusCodes.Accepted) {
-      response.firstHeaderValue(Location)
-        .map(location => Success(locationUrl(location)))
+
+    if (response.code == StatusCodes.Accepted) {
+      Option(response.inner.getFirstHeader(Location))
+        .map(location => Success(locationUrl(location.getValue)))
         .getOrElse(fail)
     } else {
       fail
@@ -239,46 +249,43 @@ class JenkinsClient(creds: JenkinsCredentials, pollInterval: FiniteDuration = De
     */
   def locationUrl(location: String): Url = {
     val url = Url.build(location)
-    if(host.isHttps) url.toHttps else url
+    if (host.isHttps) url.toHttps else url
   }
 
   protected def runGetAsJson[T](url: Url)(implicit r: Reads[T]): Future[T] =
     runParsed[T](url)(parse(url, _))
 
-  protected def runParsed[T](url: Url)(parse: RichResponse => Try[T]): Future[T] =
+  protected def runParsed[T](url: Url)(parse: WebResponse => Try[T]): Future[T] =
     makeGet(url) flatMap { response =>
-      if (response.isSuccess) toFuture(parse(response))
+      if (response.isSuccess) Future.fromTry(parse(response))
       else Future.failed[T](new ResponseException(response, url))
     }
 
-  def makeGet(url: Url): Future[RichResponse] = {
+  def makeGet(url: Url): Future[WebResponse] = {
     log debug s"GET $url"
-    makeRequest(_.get(url.url))
+    makeRequest(_ => RequestBuilder.get(url.url))
   }
 
-  def makePost(url: Url): Future[RichResponse] = {
+  def makePost(url: Url): Future[WebResponse] = {
     log debug s"POST $url"
-    makeRequest(_.client.preparePost(url.url))
+    makeRequest(_.postRequest(url.url))
   }
 
-  def makeRequest(f: AsyncHttp => AsyncHttp.RequestBuilder): Future[RichResponse] = {
-    val builder = f(client)
-      .setBasicAuth(creds.user, creds.token.token)
-      .setHeader(Accept, AsyncHttp.JSON)
-    builder.run().map(r => RichResponse(r))
+  def makeRequest(f: AsyncHttp => RequestBuilder): Future[WebResponse] = {
+    import AsyncHttp.RichRequest
+    val req = f(client)
+      .setHeader(Accept, AsyncHttp.MimeTypeJson)
+      .build()
+    req.setBasicAuth(creds.user, creds.token.token)
+    client execute req
   }
 
-  def parse[T](url: Url, response: RichResponse)(implicit r: Reads[T]): Try[T] = {
+  def parse[T: Reads](url: Url, response: WebResponse): Try[T] = {
     response.json
       .flatMap(json => Try(json.as[T]))
       .recoverWith {
         case e: Exception => Failure(new JsonException(url, response, e))
       }
-  }
-
-  private def toFuture[T](attempt: Try[T]): Future[T] = attempt match {
-    case Success(t) => Future.successful(t)
-    case Failure(t) => Future.failed(t)
   }
 
   def close(): Unit = {

@@ -151,9 +151,9 @@ class JenkinsTests extends BaseSuite with BeforeAndAfter {
   ignore("create/delete job") {
     withClient { client =>
       val creation = await(client.createJob(testJob, testJobConfig))
-      assert(creation.status === 200)
+      assert(creation.code === 200)
       val deletion = await(client.deleteJob(testJob))
-      assert(deletion.status === 302)
+      assert(deletion.code === 302)
     }
   }
 

@@ -1,14 +1,12 @@
 package com.malliina.jenkinsctrl.http
 
+import com.malliina.http.WebResponse
 import com.malliina.jenkinsctrl.models.Url
 
-/**
-  * @author mle
-  */
-class ResponseException(val response: RichResponse, val url: Url)
-  extends Exception(s"Invalid response code ${response.status} to url $url") {
+class ResponseException(val response: WebResponse, val url: Url)
+  extends Exception(s"Invalid response code ${response.code} to url $url") {
 
-  def statusCode = response.status
+  def statusCode = response.code
 
-  def bodyAsString = response.body
+  def bodyAsString = response.asString
 }

@@ -1,13 +1,8 @@
 package com.malliina.jenkinsctrl.models
 
-import java.net.URL
-
 import com.malliina.jenkinsctrl.json.JsonUtils
 import play.api.libs.json.JsSuccess
 
-/**
-  * @author mle
-  */
 case class Url private(url: String) {
   override def toString = url
 
